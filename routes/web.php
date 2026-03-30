@@ -18,7 +18,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('expenses', ExpenseController::class);
 
     // Categories
-    Route::resource('categories', CategoryController::class)->except(['create', 'show', 'edit']);
+    Route::resource('categories', CategoryController::class);
 });
 
 require __DIR__ . '/settings.php';
