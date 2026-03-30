@@ -1,14 +1,25 @@
 <?php
 
+use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\ExpenseController;
 use Illuminate\Support\Facades\Route;
-use Laravel\Fortify\Features;
+use Inertia\Inertia;
 
-Route::inertia('/', 'Welcome', [
-    'canRegister' => Features::enabled(Features::registration()),
-])->name('home');
+Route::get('/', function () {
+    return Inertia::render('Welcome');
+})->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+
+    Route::get('/dashboard', function () {
+        return Inertia::render('Dashboard');
+    })->name('dashboard');
+
+    // Expenses
+    Route::resource('expenses', ExpenseController::class);
+
+    // Categories
+    Route::resource('categories', CategoryController::class)->except(['create', 'show', 'edit']);
 });
 
-require __DIR__.'/settings.php';
+require __DIR__ . '/settings.php';
