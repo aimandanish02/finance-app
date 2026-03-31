@@ -22,17 +22,23 @@ class CategoryController extends Controller
                 'color'            => $c->color,
                 'is_tax_deductible'=> $c->is_tax_deductible,
                 'is_active'        => $c->is_active,
+                'deduction_type'   => $c->deduction_type,
+                'annual_limit'     => $c->annual_limit,
+                'description'      => $c->description,
                 'expenses_count'   => $c->expenses_count,
             ]);
 
         return Inertia::render('Categories/Index', [
-            'categories' => $categories,
+            'categories'     => $categories,
+            'deductionTypes' => Category::deductionTypes(),
         ]);
     }
 
     public function create(): Response
     {
-        return Inertia::render('Categories/Create');
+        return Inertia::render('Categories/Create', [
+            'deductionTypes' => Category::deductionTypes(),
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -43,6 +49,9 @@ class CategoryController extends Controller
             'color'             => 'nullable|string|max:50',
             'is_tax_deductible' => 'boolean',
             'is_active'         => 'boolean',
+            'deduction_type'    => 'required|string',
+            'annual_limit'      => 'nullable|numeric|min:0',
+            'description'       => 'nullable|string|max:500',
         ]);
 
         $category = Category::create($validated);
@@ -83,6 +92,10 @@ class CategoryController extends Controller
                 'color'            => $category->color,
                 'is_tax_deductible'=> $category->is_tax_deductible,
                 'is_active'        => $category->is_active,
+                'deduction_type'   => $category->deduction_type,
+                'deduction_label'  => Category::deductionTypes()[$category->deduction_type] ?? $category->deduction_type,
+                'annual_limit'     => $category->annual_limit,
+                'description'      => $category->description,
                 'expenses_count'   => $category->expenses_count,
                 'created_at'       => $category->created_at->format('Y-m-d H:i'),
             ],
@@ -102,7 +115,11 @@ class CategoryController extends Controller
                 'color'            => $category->color ?? '#6366f1',
                 'is_tax_deductible'=> $category->is_tax_deductible,
                 'is_active'        => $category->is_active,
+                'deduction_type'   => $category->deduction_type,
+                'annual_limit'     => $category->annual_limit,
+                'description'      => $category->description ?? '',
             ],
+            'deductionTypes' => Category::deductionTypes(),
         ]);
     }
 
@@ -114,6 +131,9 @@ class CategoryController extends Controller
             'color'             => 'nullable|string|max:50',
             'is_tax_deductible' => 'boolean',
             'is_active'         => 'boolean',
+            'deduction_type'    => 'required|string',
+            'annual_limit'      => 'nullable|numeric|min:0',
+            'description'       => 'nullable|string|max:500',
         ]);
 
         $category->update($validated);

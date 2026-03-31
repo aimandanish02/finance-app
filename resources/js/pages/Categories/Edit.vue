@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
+import { watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 
 interface CategoryData {
@@ -9,9 +10,15 @@ interface CategoryData {
     color: string;
     is_tax_deductible: boolean;
     is_active: boolean;
+    deduction_type: string;
+    annual_limit: string | null;
+    description: string;
 }
 
-const props = defineProps<{ category: CategoryData }>();
+const props = defineProps<{
+    category: CategoryData;
+    deductionTypes: Record<string, string>;
+}>();
 
 const form = useForm({
     name: props.category.name,
@@ -19,7 +26,14 @@ const form = useForm({
     color: props.category.color,
     is_tax_deductible: props.category.is_tax_deductible,
     is_active: props.category.is_active,
+    deduction_type: props.category.deduction_type,
+    annual_limit: props.category.annual_limit ?? '',
+    description: props.category.description,
     _method: 'PUT',
+});
+
+watch(() => form.deduction_type, (val) => {
+    form.is_tax_deductible = val !== 'NOT_DEDUCTIBLE';
 });
 
 const submit = () => form.post(`/categories/${props.category.id}`);
@@ -34,7 +48,7 @@ const submit = () => form.post(`/categories/${props.category.id}`);
 
                 <div class="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
                     <h2 class="text-base font-semibold text-gray-900 dark:text-white">Edit Category</h2>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Update the details for this category.</p>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Update the details for this deduction category.</p>
                 </div>
 
                 <form @submit.prevent="submit" class="p-6 space-y-5">
@@ -66,6 +80,53 @@ const submit = () => form.post(`/categories/${props.category.id}`);
                     </div>
 
                     <div>
+                        <label for="deduction_type" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            LHDN Deduction Type <span class="text-red-500">*</span>
+                        </label>
+                        <select
+                            id="deduction_type"
+                            v-model="form.deduction_type"
+                            class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        >
+                            <option
+                                v-for="(label, key) in deductionTypes"
+                                :key="key"
+                                :value="key"
+                            >
+                                {{ label }}
+                            </option>
+                        </select>
+                        <InputError :message="form.errors.deduction_type" class="mt-1" />
+                    </div>
+
+                    <div>
+                        <label for="annual_limit" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            Annual Limit (MYR)
+                        </label>
+                        <input
+                            id="annual_limit"
+                            v-model="form.annual_limit"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="Leave blank if unlimited"
+                            class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        />
+                        <InputError :message="form.errors.annual_limit" class="mt-1" />
+                    </div>
+
+                    <div>
+                        <label for="description" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Description</label>
+                        <textarea
+                            id="description"
+                            v-model="form.description"
+                            rows="3"
+                            class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        />
+                        <InputError :message="form.errors.description" class="mt-1" />
+                    </div>
+
+                    <div>
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Colour</label>
                         <div class="flex items-center gap-3">
                             <input
@@ -80,19 +141,11 @@ const submit = () => form.post(`/categories/${props.category.id}`);
 
                     <div class="flex items-center gap-6">
                         <label class="flex cursor-pointer items-center gap-2">
-                            <input
-                                v-model="form.is_tax_deductible"
-                                type="checkbox"
-                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                            />
+                            <input v-model="form.is_tax_deductible" type="checkbox" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                             <span class="text-sm text-gray-700 dark:text-gray-300">Tax deductible</span>
                         </label>
                         <label class="flex cursor-pointer items-center gap-2">
-                            <input
-                                v-model="form.is_active"
-                                type="checkbox"
-                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                            />
+                            <input v-model="form.is_active" type="checkbox" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                             <span class="text-sm text-gray-700 dark:text-gray-300">Active</span>
                         </label>
                     </div>
@@ -101,9 +154,7 @@ const submit = () => form.post(`/categories/${props.category.id}`);
                         <a
                             :href="`/categories/${category.id}`"
                             class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                        >
-                            Cancel
-                        </a>
+                        >Cancel</a>
                         <button
                             type="submit"
                             :disabled="form.processing"
@@ -116,7 +167,6 @@ const submit = () => form.post(`/categories/${props.category.id}`);
                             {{ form.processing ? 'Saving...' : 'Save Changes' }}
                         </button>
                     </div>
-
                 </form>
             </div>
         </div>

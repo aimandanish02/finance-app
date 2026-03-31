@@ -8,10 +8,15 @@ interface Category {
     color: string | null;
     is_tax_deductible: boolean;
     is_active: boolean;
+    deduction_type: string;
+    annual_limit: string | null;
     expenses_count: number;
 }
 
-defineProps<{ categories: Category[] }>();
+defineProps<{
+    categories: Category[];
+    deductionTypes: Record<string, string>;
+}>();
 
 const deleteCategory = (category: Category) => {
     if (category.expenses_count > 0) {
@@ -22,6 +27,9 @@ const deleteCategory = (category: Category) => {
         router.delete(`/categories/${category.id}`);
     }
 };
+
+const fmt = (v: string | null) =>
+    v ? parseFloat(v).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
 </script>
 
 <template>
@@ -32,7 +40,9 @@ const deleteCategory = (category: Category) => {
         <div class="flex items-center justify-between">
             <div>
                 <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Categories</h1>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Manage expense and income categories.</p>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    LHDN-mapped deduction categories for Malaysian tax filing.
+                </p>
             </div>
             <Link
                 href="/categories/create"
@@ -50,7 +60,8 @@ const deleteCategory = (category: Category) => {
                 <thead class="bg-gray-50 dark:bg-gray-700/50">
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Name</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Code</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">LHDN Deduction Type</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Annual Limit</th>
                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Tax Deductible</th>
                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</th>
                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Expenses</th>
@@ -70,13 +81,20 @@ const deleteCategory = (category: Category) => {
                                         class="h-3 w-3 rounded-full flex-shrink-0"
                                         :style="{ backgroundColor: category.color ?? '#94a3b8' }"
                                     />
-                                    <span class="text-sm font-medium text-gray-900 dark:text-white">{{ category.name }}</span>
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900 dark:text-white">{{ category.name }}</p>
+                                        <code class="text-[10px] text-gray-400">{{ category.code }}</code>
+                                    </div>
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <code class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                                    {{ category.code }}
-                                </code>
+                                <span class="text-sm text-gray-700 dark:text-gray-300">
+                                    {{ deductionTypes[category.deduction_type] ?? category.deduction_type }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                                <span v-if="category.annual_limit">MYR {{ fmt(category.annual_limit) }}</span>
+                                <span v-else class="text-gray-400">—</span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span
@@ -106,40 +124,29 @@ const deleteCategory = (category: Category) => {
                                     <Link
                                         :href="`/categories/${category.id}`"
                                         class="text-sm font-medium text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
-                                    >
-                                        View
-                                    </Link>
+                                    >View</Link>
                                     <Link
                                         :href="`/categories/${category.id}/edit`"
                                         class="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
-                                    >
-                                        Edit
-                                    </Link>
+                                    >Edit</Link>
                                     <button
                                         type="button"
                                         class="text-sm font-medium text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
                                         @click="deleteCategory(category)"
-                                    >
-                                        Delete
-                                    </button>
+                                    >Delete</button>
                                 </div>
                             </td>
                         </tr>
                     </template>
 
                     <tr v-else>
-                        <td colspan="6" class="px-6 py-16 text-center">
-                            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                            </svg>
+                        <td colspan="7" class="px-6 py-16 text-center">
                             <p class="mt-4 text-base font-medium text-gray-900 dark:text-white">No categories yet</p>
-                            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Create your first category to get started.</p>
+                            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Run the CategorySeeder or create one manually.</p>
                             <Link
                                 href="/categories/create"
                                 class="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-                            >
-                                New Category
-                            </Link>
+                            >New Category</Link>
                         </td>
                     </tr>
                 </tbody>

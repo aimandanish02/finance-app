@@ -8,6 +8,10 @@ interface Category {
     color: string | null;
     is_tax_deductible: boolean;
     is_active: boolean;
+    deduction_type: string;
+    deduction_label: string;
+    annual_limit: string | null;
+    description: string | null;
     expenses_count: number;
     created_at: string;
 }
@@ -21,17 +25,18 @@ interface Expense {
     description: string | null;
 }
 
-interface Props {
+const props = defineProps<{
     category: Category;
     expenses: Expense[];
     totalExpenses: number;
     totalIncome: number;
-}
-
-const props = defineProps<Props>();
+}>();
 
 const fmt = (v: number) =>
     v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const fmtLimit = (v: string | null) =>
+    v ? `MYR ${parseFloat(v).toLocaleString('en-MY', { minimumFractionDigits: 2 })}` : 'Unlimited / Not Applicable';
 
 const fmtDate = (d: string) =>
     new Date(d + 'T00:00:00').toLocaleDateString('en-MY', {
@@ -43,7 +48,7 @@ const deleteCategory = () => {
         alert(`Cannot delete "${props.category.name}" — it has ${props.category.expenses_count} expense(s) linked to it.`);
         return;
     }
-    if (confirm(`Delete category "${props.category.name}"? This cannot be undone.`)) {
+    if (confirm(`Delete "${props.category.name}"? This cannot be undone.`)) {
         router.delete(`/categories/${props.category.id}`);
     }
 };
@@ -55,26 +60,36 @@ const deleteCategory = () => {
     <div class="flex h-full flex-1 flex-col gap-6 p-6">
         <div class="mx-auto w-full max-w-2xl space-y-5">
 
-            <!-- Main detail card -->
+            <!-- Main card -->
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
 
                 <!-- Header -->
                 <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
                     <div class="flex items-center gap-3">
                         <span
-                            class="h-4 w-4 rounded-full"
+                            class="h-4 w-4 rounded-full flex-shrink-0"
                             :style="{ backgroundColor: category.color ?? '#94a3b8' }"
                         />
                         <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ category.name }}</h2>
                     </div>
-                    <span
-                        class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
-                        :class="category.is_active
-                            ? 'bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-400'
-                            : 'bg-red-100 text-red-800 dark:bg-red-800/30 dark:text-red-400'"
-                    >
-                        {{ category.is_active ? 'Active' : 'Inactive' }}
-                    </span>
+                    <div class="flex items-center gap-2">
+                        <span
+                            class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                            :class="category.is_tax_deductible
+                                ? 'bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-400'
+                                : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'"
+                        >
+                            {{ category.is_tax_deductible ? 'Tax Deductible' : 'Not Deductible' }}
+                        </span>
+                        <span
+                            class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                            :class="category.is_active
+                                ? 'bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-400'
+                                : 'bg-red-100 text-red-800 dark:bg-red-800/30 dark:text-red-400'"
+                        >
+                            {{ category.is_active ? 'Active' : 'Inactive' }}
+                        </span>
+                    </div>
                 </div>
 
                 <!-- Totals -->
@@ -104,17 +119,16 @@ const deleteCategory = () => {
                         </dd>
                     </div>
                     <div class="flex justify-between px-6 py-3">
-                        <dt class="text-sm text-gray-500 dark:text-gray-400">Tax Deductible</dt>
-                        <dd>
-                            <span
-                                class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
-                                :class="category.is_tax_deductible
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-400'
-                                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'"
-                            >
-                                {{ category.is_tax_deductible ? 'Yes' : 'No' }}
-                            </span>
-                        </dd>
+                        <dt class="text-sm text-gray-500 dark:text-gray-400">LHDN Deduction Type</dt>
+                        <dd class="text-sm font-medium text-gray-900 dark:text-white">{{ category.deduction_label }}</dd>
+                    </div>
+                    <div class="flex justify-between px-6 py-3">
+                        <dt class="text-sm text-gray-500 dark:text-gray-400">Annual Limit</dt>
+                        <dd class="text-sm font-medium text-gray-900 dark:text-white">{{ fmtLimit(category.annual_limit) }}</dd>
+                    </div>
+                    <div v-if="category.description" class="px-6 py-3">
+                        <dt class="text-sm text-gray-500 dark:text-gray-400 mb-1">What qualifies</dt>
+                        <dd class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{{ category.description }}</dd>
                     </div>
                     <div class="flex justify-between px-6 py-3">
                         <dt class="text-sm text-gray-500 dark:text-gray-400">Created</dt>
@@ -123,17 +137,14 @@ const deleteCategory = () => {
                 </dl>
             </div>
 
-            <!-- Recent expenses under this category -->
+            <!-- Recent expenses -->
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
                         Recent Expenses
                         <span class="ml-1 text-xs font-normal text-gray-400">(last 10)</span>
                     </h3>
-                    <Link
-                        href="/expenses"
-                        class="text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
-                    >
+                    <Link href="/expenses" class="text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
                         View all →
                     </Link>
                 </div>
@@ -182,16 +193,12 @@ const deleteCategory = () => {
                     <Link
                         :href="`/categories/${category.id}/edit`"
                         class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                    >
-                        Edit
-                    </Link>
+                    >Edit</Link>
                     <button
                         type="button"
                         class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors"
                         @click="deleteCategory"
-                    >
-                        Delete
-                    </button>
+                    >Delete</button>
                 </div>
             </div>
 
