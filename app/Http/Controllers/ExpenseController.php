@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -74,7 +75,7 @@ class ExpenseController extends Controller
             'description'  => 'nullable|string|max:255',
             'notes'        => 'nullable|string|max:1000',
             'receipts'     => 'nullable|array',
-            'receipts.*'   => 'file|max:10240|mimetypes:image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf',
+            'receipts.*'   => 'file|max:10240|mimetypes:image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,application/pdf',
         ]);
 
         DB::beginTransaction();
@@ -92,21 +93,62 @@ class ExpenseController extends Controller
                 'is_active'    => true,
             ]);
 
+            Log::info('[EXPENSE] Expense created', ['expense_id' => $expense->id]);
+            Log::info('[EXPENSE] Has file?', ['has_receipts' => $request->hasFile('receipts')]);
+            Log::info('[EXPENSE] All files', ['files' => array_keys($request->allFiles())]);
+
             if ($request->hasFile('receipts')) {
-                foreach ($request->file('receipts') as $file) {
+                foreach ($request->file('receipts') as $index => $file) {
+                    Log::info('[EXPENSE] Processing receipt', [
+                        'index'         => $index,
+                        'original_name' => $file->getClientOriginalName(),
+                        'mime_type'     => $file->getClientMimeType(),
+                        'size'          => $file->getSize(),
+                        'is_valid'      => $file->isValid(),
+                        'error'         => $file->getError(),
+                    ]);
+
                     $uploadPath = $file->store('expenses/receipts', 'public');
 
-                    Receipt::create([
+                    Log::info('[EXPENSE] File stored', [
+                        'upload_path' => $uploadPath,
+                        'full_path'   => storage_path('app/public/' . $uploadPath),
+                        'exists'      => $uploadPath ? file_exists(storage_path('app/public/' . $uploadPath)) : false,
+                    ]);
+
+                    $ocrText = null;
+                    try {
+                        $tesseractBin = trim(shell_exec('which tesseract 2>/dev/null') ?? '') ?: '/opt/homebrew/bin/tesseract';
+                        $fullPath   = storage_path('app/public/' . $uploadPath);
+                        $raw = (new \thiagoalessio\TesseractOCR\TesseractOCR($fullPath))
+                            ->executable($tesseractBin)
+                            ->lang('eng')
+                            ->config('user_defined_dpi', '300')
+                            ->run();
+                        $ocrText = $raw ?: null;
+                    } catch (\Exception $e) {
+                        Log::warning('[EXPENSE] OCR failed on save (non-fatal)', ['error' => $e->getMessage()]);
+                    }
+
+                    $receiptData = [
                         'expense_id'    => $expense->id,
                         'filename'      => basename($uploadPath),
                         'original_name' => $file->getClientOriginalName(),
-                        'type'          => $file->guessExtension() ?: 'file',
-                        'mime_type'     => $file->getMimeType(),
+                        'type'          => str_contains($file->getClientMimeType(), 'pdf') ? 'pdf' : 'image',
+                        'mime_type'     => $file->getClientMimeType(),
                         'file_path'     => $uploadPath,
-                        'is_indexed'    => false,
-                        'ocr_text'      => null,
-                    ]);
+                        'is_indexed'    => $ocrText !== null,
+                        'ocr_text'      => $ocrText,
+                    ];
+
+                    Log::info('[EXPENSE] Creating receipt record', $receiptData);
+
+                    $receipt = Receipt::create($receiptData);
+
+                    Log::info('[EXPENSE] Receipt created', ['receipt_id' => $receipt->id ?? 'FAILED']);
                 }
+            } else {
+                Log::info('[EXPENSE] No receipts in request');
             }
 
             DB::commit();
@@ -114,6 +156,11 @@ class ExpenseController extends Controller
             return redirect()->route('expenses.index')
                 ->with('success', 'Expense created successfully.');
         } catch (\Exception $e) {
+            Log::error('[EXPENSE] Exception in store', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+            ]);
             DB::rollBack();
 
             return back()->withInput()
@@ -191,7 +238,7 @@ class ExpenseController extends Controller
             'description'  => 'nullable|string|max:255',
             'notes'        => 'nullable|string|max:1000',
             'receipts'     => 'nullable|array',
-            'receipts.*'   => 'file|max:10240|mimetypes:image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf',
+            'receipts.*'   => 'file|max:10240|mimetypes:image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,application/pdf',
         ]);
 
         DB::beginTransaction();
@@ -209,17 +256,32 @@ class ExpenseController extends Controller
 
             if ($request->hasFile('receipts')) {
                 foreach ($request->file('receipts') as $file) {
+                    $clientMime = $file->getClientMimeType();
                     $uploadPath = $file->store('expenses/receipts', 'public');
+
+                    $ocrText = null;
+                    try {
+                        $tesseractBin = trim(shell_exec('which tesseract 2>/dev/null') ?? '') ?: '/opt/homebrew/bin/tesseract';
+                        $fullPath = storage_path('app/public/' . $uploadPath);
+                        $raw = (new \thiagoalessio\TesseractOCR\TesseractOCR($fullPath))
+                            ->executable($tesseractBin)
+                            ->lang('eng')
+                            ->config('user_defined_dpi', '300')
+                            ->run();
+                        $ocrText = $raw ?: null;
+                    } catch (\Exception $e) {
+                        // OCR failure is non-fatal
+                    }
 
                     Receipt::create([
                         'expense_id'    => $expense->id,
                         'filename'      => basename($uploadPath),
                         'original_name' => $file->getClientOriginalName(),
-                        'type'          => $file->guessExtension() ?: 'file',
-                        'mime_type'     => $file->getMimeType(),
+                        'type'          => str_contains($clientMime, 'pdf') ? 'pdf' : 'image',
+                        'mime_type'     => $clientMime,
                         'file_path'     => $uploadPath,
-                        'is_indexed'    => false,
-                        'ocr_text'      => null,
+                        'is_indexed'    => $ocrText !== null,
+                        'ocr_text'      => $ocrText,
                     ]);
                 }
             }
