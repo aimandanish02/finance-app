@@ -4,10 +4,10 @@ import { ref } from 'vue';
 import InputError from '@/components/InputError.vue';
 
 interface Category {
-    id: number;
-    name: string;
-    code: string;
-    color: string | null;
+    id: number; name: string; code: string; color: string | null;
+}
+interface Suggestion {
+    id: number; name: string; code: string; color: string | null; deduction_type: string;
 }
 
 defineProps<{ categories: Category[] }>();
@@ -25,6 +25,45 @@ const form = useForm({
 
 const submit = () => form.post('/expenses', { forceFormData: true });
 
+// ── Auto-categorize ────────────────────────────────────────────────────────
+const suggestions     = ref<Suggestion[]>([]);
+const suggestLoading  = ref(false);
+const suggestSource   = ref<'ai' | 'keywords' | null>(null);
+let   suggestTimer: ReturnType<typeof setTimeout> | null = null;
+
+const onTitleInput = () => {
+    if (suggestTimer) clearTimeout(suggestTimer);
+    suggestions.value = [];
+    if (form.title.length < 3) return;
+    suggestTimer = setTimeout(() => fetchSuggestions(), 600);
+};
+
+const fetchSuggestions = async () => {
+    suggestLoading.value = true;
+    try {
+        const res = await fetch('/expenses/categorize', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content ?? '',
+            },
+            body: JSON.stringify({ title: form.title, description: form.description }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            suggestions.value  = data.suggestions ?? [];
+            suggestSource.value = data.source ?? null;
+        }
+    } catch { /* silent */ } finally {
+        suggestLoading.value = false;
+    }
+};
+
+const applySuggestion = (s: Suggestion) => {
+    form.category_id = String(s.id);
+    suggestions.value = [];
+};
+
 // ── OCR state ──────────────────────────────────────────────────────────────
 const ocrLoading  = ref(false);
 const ocrPanel    = ref(false);
@@ -36,12 +75,8 @@ const ocrError    = ref<string | null>(null);
 const handleFileChange = async (event: Event) => {
     const target = event.target as HTMLInputElement;
     if (!target.files?.length) return;
-
     form.receipts = Array.from(target.files);
-
-    // Run OCR on the first file
-    const file = target.files[0];
-    await runOcr(file);
+    await runOcr(target.files[0]);
 };
 
 const runOcr = async (file: File) => {
@@ -249,7 +284,26 @@ const dismissOcr = () => { ocrPanel.value = false; };
                             id="title" v-model="form.title" type="text"
                             placeholder="e.g. Lunch with client"
                             class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                            @input="onTitleInput"
                         />
+                        <!-- Suggestion chips -->
+                        <div v-if="suggestLoading" class="mt-2 text-xs text-gray-400">Suggesting categories…</div>
+                        <div v-if="suggestions.length > 0" class="mt-2">
+                            <p class="text-xs text-gray-400 mb-1.5">
+                                {{ suggestSource === 'ai' ? '✨ AI suggestion' : '💡 Suggested category' }} — click to apply:
+                            </p>
+                            <div class="flex flex-wrap gap-2">
+                                <button
+                                    v-for="s in suggestions" :key="s.code"
+                                    type="button"
+                                    class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-80"
+                                    :style="{ backgroundColor: s.color ?? '#6366f1' }"
+                                    @click="applySuggestion(s)"
+                                >
+                                    {{ s.name }}
+                                </button>
+                            </div>
+                        </div>
                         <InputError :message="form.errors.title" class="mt-1" />
                     </div>
 

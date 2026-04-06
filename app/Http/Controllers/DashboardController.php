@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Budget;
 use App\Models\Expense;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -13,7 +14,6 @@ class DashboardController extends Controller
     {
         $userId = Auth::id();
 
-        // ── All-time totals ──────────────────────────────────────────────
         $totals = Expense::where('user_id', $userId)
             ->selectRaw("
                 SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expenses,
@@ -22,7 +22,6 @@ class DashboardController extends Controller
             ")
             ->first();
 
-        // ── Current month ────────────────────────────────────────────────
         $monthTotals = Expense::where('user_id', $userId)
             ->whereYear('expense_date', now()->year)
             ->whereMonth('expense_date', now()->month)
@@ -32,7 +31,6 @@ class DashboardController extends Controller
             ")
             ->first();
 
-        // ── Last 6 months chart data ─────────────────────────────────────
         $monthlyData = Expense::where('user_id', $userId)
             ->where('expense_date', '>=', now()->subMonths(5)->startOfMonth())
             ->selectRaw("
@@ -50,21 +48,14 @@ class DashboardController extends Controller
                 'income'   => (float) $row->income,
             ]);
 
-        // Fill in any missing months with zeroes so the chart is continuous
         $filledMonthly = collect();
         for ($i = 5; $i >= 0; $i--) {
             $key   = now()->subMonths($i)->format('Y-m');
             $label = now()->subMonths($i)->format('M Y');
             $found = $monthlyData->firstWhere('month', $key);
-            $filledMonthly->push($found ?? [
-                'month'    => $key,
-                'label'    => $label,
-                'expenses' => 0,
-                'income'   => 0,
-            ]);
+            $filledMonthly->push($found ?? ['month' => $key, 'label' => $label, 'expenses' => 0, 'income' => 0]);
         }
 
-        // ── Spending by category (expenses only) ─────────────────────────
         $byCategory = Expense::where('user_id', $userId)
             ->where('type', 'expense')
             ->whereYear('expense_date', now()->year)
@@ -81,7 +72,6 @@ class DashboardController extends Controller
             ->sortByDesc('total')
             ->values();
 
-        // ── Recent 5 transactions ────────────────────────────────────────
         $recent = Expense::with('category')
             ->where('user_id', $userId)
             ->latest('expense_date')
@@ -99,19 +89,54 @@ class DashboardController extends Controller
                 ] : null,
             ]);
 
+        // Budget alerts — only show budgets at ≥80% or exceeded
+        $budgetAlerts = Budget::with('category')
+            ->where('user_id', $userId)
+            ->get()
+            ->map(function ($budget) use ($userId) {
+                $query = Expense::where('user_id', $userId)
+                    ->where('type', 'expense')
+                    ->whereMonth('expense_date', now()->month)
+                    ->whereYear('expense_date', now()->year);
+
+                if ($budget->category_id) {
+                    $query->where('category_id', $budget->category_id);
+                }
+
+                $spent  = (float) $query->sum('amount');
+                $limit  = (float) $budget->amount;
+                $pct    = $limit > 0 ? min(100, round(($spent / $limit) * 100)) : 0;
+                $status = $pct >= 100 ? 'exceeded' : ($pct >= 80 ? 'warning' : 'ok');
+
+                return [
+                    'id'         => $budget->id,
+                    'label'      => $budget->getLabel(),
+                    'is_overall' => $budget->isOverall(),
+                    'color'      => $budget->category?->color ?? '#6366f1',
+                    'amount'     => $limit,
+                    'spent'      => $spent,
+                    'pct'        => $pct,
+                    'status'     => $status,
+                ];
+            })
+            ->filter(fn ($b) => $b['status'] !== 'ok')
+            ->sortByDesc('pct')
+            ->values();
+
         return Inertia::render('Dashboard', [
             'stats' => [
-                'totalExpenses'  => (float) $totals->total_expenses,
-                'totalIncome'    => (float) $totals->total_income,
-                'netBalance'     => (float) $totals->total_income - (float) $totals->total_expenses,
-                'totalCount'     => (int)   $totals->total_count,
-                'monthExpenses'  => (float) $monthTotals->month_expenses,
-                'monthIncome'    => (float) $monthTotals->month_income,
-                'monthNet'       => (float) $monthTotals->month_income - (float) $monthTotals->month_expenses,
+                'totalExpenses' => (float) $totals->total_expenses,
+                'totalIncome'   => (float) $totals->total_income,
+                'netBalance'    => (float) $totals->total_income - (float) $totals->total_expenses,
+                'totalCount'    => (int)   $totals->total_count,
+                'monthExpenses' => (float) $monthTotals->month_expenses,
+                'monthIncome'   => (float) $monthTotals->month_income,
+                'monthNet'      => (float) $monthTotals->month_income - (float) $monthTotals->month_expenses,
             ],
-            'monthlyChart' => $filledMonthly->values(),
-            'byCategory'   => $byCategory,
-            'recent'       => $recent,
+            'monthlyChart'  => $filledMonthly->values(),
+            'byCategory'    => $byCategory,
+            'recent'        => $recent,
+            'budgetAlerts'  => $budgetAlerts,
         ]);
     }
 }

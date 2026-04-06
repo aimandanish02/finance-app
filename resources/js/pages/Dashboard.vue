@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
-import AppLayout from '@/layouts/AppLayout.vue';
-import { type BreadcrumbItem } from '@/types';
 
-// ── Types ──────────────────────────────────────────────────────────────────
 interface Stats {
     totalExpenses: number;
     totalIncome: number;
@@ -37,20 +34,27 @@ interface RecentEntry {
     category: { name: string; color: string } | null;
 }
 
+interface BudgetAlert {
+    id: number;
+    label: string;
+    is_overall: boolean;
+    color: string;
+    amount: number;
+    spent: number;
+    pct: number;
+    status: 'warning' | 'exceeded';
+}
+
 interface Props {
     stats: Stats;
     monthlyChart: MonthlyPoint[];
     byCategory: CategoryBreakdown[];
     recent: RecentEntry[];
+    budgetAlerts: BudgetAlert[];
 }
 
 const props = defineProps<Props>();
 
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Dashboard', href: '/dashboard' },
-];
-
-// ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = (value: number) =>
     value.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -95,9 +99,41 @@ const donutSegments = computed(() => {
 </script>
 
 <template>
-        <Head title="Dashboard" />
+    <Head title="Dashboard" />
 
         <div class="flex flex-col gap-6 p-6">
+
+            <!-- ── Budget alerts ───────────────────────────────────────── -->
+            <div v-if="budgetAlerts.length > 0" class="space-y-2">
+                <div
+                    v-for="alert in budgetAlerts"
+                    :key="alert.id"
+                    class="flex items-center justify-between rounded-xl px-5 py-3"
+                    :class="alert.status === 'exceeded'
+                        ? 'border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
+                        : 'border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'"
+                >
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="h-3 w-3 rounded-full flex-shrink-0" :style="{ backgroundColor: alert.color }" />
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium truncate" :class="alert.status === 'exceeded' ? 'text-red-900 dark:text-red-300' : 'text-amber-900 dark:text-amber-300'">
+                                {{ alert.status === 'exceeded' ? '⚠ Over budget:' : '⚡ Approaching limit:' }}
+                                {{ alert.label }}
+                            </p>
+                            <p class="text-xs mt-0.5" :class="alert.status === 'exceeded' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'">
+                                MYR {{ fmt(alert.spent) }} spent of MYR {{ fmt(alert.amount) }} budget ({{ alert.pct }}%)
+                            </p>
+                        </div>
+                    </div>
+                    <Link
+                        :href="`/budgets/${alert.id}`"
+                        class="ml-4 flex-shrink-0 text-xs font-medium underline"
+                        :class="alert.status === 'exceeded' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'"
+                    >
+                        View
+                    </Link>
+                </div>
+            </div>
 
             <!-- ── Summary stat cards ──────────────────────────────────── -->
             <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
