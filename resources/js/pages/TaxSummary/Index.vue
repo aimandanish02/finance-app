@@ -2,9 +2,7 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
-interface CategoryBreakdown {
-    id: number; name: string; color: string | null; total: number;
-}
+interface CategoryBreakdown { id: number; name: string; color: string | null; total: number; }
 interface DeductionRow {
     deduction_type: string; deduction_label: string;
     total_spent: number; annual_limit: number | null;
@@ -18,8 +16,10 @@ interface LimitAlert {
     annual_limit: number; claimable: number;
     over_limit: boolean; status: 'warning' | 'exceeded';
 }
-interface TaxBracket {
-    min: number; max: number | null; rate: number; label: string;
+interface TaxBracket { min: number; max: number | null; rate: number; label: string; }
+interface TaxGuidance {
+    title: string; limit: string; notes: string;
+    qualifies: string[]; receipts: string;
 }
 interface Props {
     year: number; availableYears: number[];
@@ -28,6 +28,7 @@ interface Props {
     nonDeductibleTotal: number; receiptsCount: number;
     categoriesOver: number; limitAlerts: LimitAlert[];
     taxBrackets: TaxBracket[];
+    taxGuidance: Record<string, TaxGuidance>;
 }
 
 const props = defineProps<Props>();
@@ -55,18 +56,22 @@ const progressColor = (row: DeductionRow) => {
     return 'bg-indigo-500';
 };
 
+// ── Guidance expand/collapse ──────────────────────────────────────────────
+const expandedGuidance = ref<string | null>(null);
+const toggleGuidance = (type: string, e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    expandedGuidance.value = expandedGuidance.value === type ? null : type;
+};
+
 // ── Savings calculator ────────────────────────────────────────────────────
 const annualIncome = ref<number | null>(null);
-
-const calcBracket = (income: number): TaxBracket | null => {
-    if (!income || income <= 0) return null;
-    // Chargeable income = income - personal relief (RM9,000)
+const calcBracket = (income: number) => {
     const chargeable = Math.max(0, income - 9000);
     return props.taxBrackets.find(b =>
         chargeable >= b.min && (b.max === null || chargeable <= b.max)
     ) ?? null;
 };
-
 const taxSaved = computed(() => {
     if (!annualIncome.value || annualIncome.value <= 0) return null;
     const bracket = calcBracket(annualIncome.value);
@@ -75,9 +80,21 @@ const taxSaved = computed(() => {
         rate: bracket.rate,
         label: bracket.label,
         saved: Math.round((props.totalClaimable * bracket.rate) / 100),
-        effectiveSaved: Math.round((props.totalClaimable * bracket.rate) / 100),
     };
 });
+
+// ── Export ────────────────────────────────────────────────────────────────
+const exportScheduleA = async () => {
+    const res = await fetch(`/tax-summary/export/schedule-a?year=${props.year}`);
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `schedule-a-${props.year}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+};
 </script>
 
 <template>
@@ -85,16 +102,16 @@ const taxSaved = computed(() => {
 
     <div class="flex h-full flex-1 flex-col gap-6 p-6">
 
-        <!-- Header + year switcher -->
+        <!-- Header + year switcher + action buttons -->
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
                 <h1 class="text-xl font-semibold text-gray-900 dark:text-white">Tax Summary</h1>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    LHDN deduction breakdown for Year of Assessment {{ year }}
+                    LHDN deduction breakdown — Year of Assessment {{ year }}
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="text-sm text-gray-500 dark:text-gray-400">Year:</span>
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Year switcher -->
                 <div class="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
                     <button
                         v-for="y in availableYears" :key="y" type="button"
@@ -105,6 +122,28 @@ const taxSaved = computed(() => {
                         @click="switchYear(y)"
                     >{{ y }}</button>
                 </div>
+                <!-- PDF download -->
+                <a
+                    :href="`/tax-summary/export/pdf?year=${year}`"
+                    target="_blank"
+                    class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    Download PDF
+                </a>
+                <!-- JSON export -->
+                <button
+                    type="button"
+                    class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                    @click="exportScheduleA"
+                >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                    Export Schedule A
+                </button>
             </div>
         </div>
 
@@ -127,8 +166,7 @@ const taxSaved = computed(() => {
                         <span v-if="alert.over_limit"> — only MYR {{ fmt(alert.claimable) }} claimable</span>
                     </p>
                 </div>
-                <Link
-                    :href="`/tax-summary/${alert.deduction_type}?year=${year}`"
+                <Link :href="`/tax-summary/${alert.deduction_type}?year=${year}`"
                     class="ml-4 flex-shrink-0 text-xs font-medium underline"
                     :class="alert.status === 'exceeded' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'"
                 >View →</Link>
@@ -140,12 +178,12 @@ const taxSaved = computed(() => {
             <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Claimable</p>
                 <p class="mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">MYR {{ fmt(totalClaimable) }}</p>
-                <p class="mt-1 text-xs text-gray-400">After applying LHDN limits</p>
+                <p class="mt-1 text-xs text-gray-400">After LHDN limits</p>
             </div>
             <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Deductible Spent</p>
                 <p class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">MYR {{ fmt(totalSpent) }}</p>
-                <p class="mt-1 text-xs text-gray-400">Before limits applied</p>
+                <p class="mt-1 text-xs text-gray-400">Before limits</p>
             </div>
             <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
                 <p class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Non-Deductible</p>
@@ -169,17 +207,13 @@ const taxSaved = computed(() => {
             </p>
             <div class="flex flex-wrap items-end gap-4">
                 <div class="flex-1 min-w-[200px]">
-                    <label class="block text-xs font-medium text-indigo-800 dark:text-indigo-300 mb-1.5">
-                        Annual Taxable Income (MYR)
-                    </label>
+                    <label class="block text-xs font-medium text-indigo-800 dark:text-indigo-300 mb-1.5">Annual Taxable Income (MYR)</label>
                     <input
-                        v-model.number="annualIncome"
-                        type="number" min="0" step="1000"
+                        v-model.number="annualIncome" type="number" min="0" step="1000"
                         placeholder="e.g. 60000"
                         class="block w-full rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-indigo-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
                     />
                 </div>
-                <!-- Result -->
                 <div v-if="taxSaved" class="flex flex-wrap gap-4">
                     <div class="rounded-lg bg-white px-5 py-3 dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700">
                         <p class="text-xs text-gray-500 dark:text-gray-400">Tax bracket</p>
@@ -190,21 +224,19 @@ const taxSaved = computed(() => {
                         <p class="text-lg font-bold text-white">MYR {{ fmt(taxSaved.saved) }}</p>
                     </div>
                 </div>
-                <div v-else-if="annualIncome && annualIncome > 0" class="text-sm text-indigo-500 dark:text-indigo-400">
-                    Calculating...
-                </div>
             </div>
             <p class="mt-3 text-xs text-indigo-500 dark:text-indigo-500">
-                * Based on YA2025 Malaysian income tax rates. Estimated savings = claimable deductions × marginal tax rate.
-                Actual tax depends on all reliefs, rebates, and your complete filing. Consult a licensed tax agent for accurate computation.
+                * Based on YA2025 Malaysian income tax rates. Estimated savings = claimable deductions × marginal tax rate. Consult a licensed tax agent for accurate computation.
             </p>
         </div>
 
-        <!-- Breakdown table -->
+        <!-- Breakdown table with guidance -->
         <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-            <div class="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Deduction Breakdown</h2>
-                <p class="mt-0.5 text-xs text-gray-400">Click any row to see individual expenses</p>
+            <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+                <div>
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Deduction Breakdown</h2>
+                    <p class="mt-0.5 text-xs text-gray-400">Click ⓘ to see what qualifies. Click a row to see expenses.</p>
+                </div>
             </div>
 
             <div v-if="breakdown.length > 0">
@@ -212,6 +244,7 @@ const taxSaved = computed(() => {
                     v-for="row in breakdown" :key="row.deduction_type"
                     class="border-b border-gray-200 dark:border-gray-700 last:border-0"
                 >
+                    <!-- Main row -->
                     <Link
                         :href="`/tax-summary/${row.deduction_type}?year=${year}`"
                         class="block px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
@@ -223,6 +256,14 @@ const taxSaved = computed(() => {
                                     <span :class="['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', statusClass(row)]">
                                         {{ statusLabel(row) }}
                                     </span>
+                                    <!-- Info button -->
+                                    <button
+                                        v-if="taxGuidance[row.deduction_type]"
+                                        type="button"
+                                        class="inline-flex items-center justify-center h-5 w-5 rounded-full bg-gray-100 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600 transition-colors dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-indigo-800/40 dark:hover:text-indigo-400 text-xs font-bold"
+                                        :title="`What qualifies for ${row.deduction_label}?`"
+                                        @click="toggleGuidance(row.deduction_type, $event)"
+                                    >ⓘ</button>
                                 </div>
                                 <div class="mt-1.5 flex flex-wrap gap-2">
                                     <span
@@ -237,11 +278,9 @@ const taxSaved = computed(() => {
                                         <span>Limit: MYR {{ fmt(row.annual_limit) }}</span>
                                     </div>
                                     <div class="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-                                        <div
-                                            class="h-1.5 rounded-full transition-all duration-500"
+                                        <div class="h-1.5 rounded-full transition-all duration-500"
                                             :class="progressColor(row)"
-                                            :style="{ width: `${Math.min(row.usage_pct ?? 0, 100)}%` }"
-                                        />
+                                            :style="{ width: `${Math.min(row.usage_pct ?? 0, 100)}%` }"/>
                                     </div>
                                     <p v-if="row.over_limit" class="mt-1 text-xs text-red-500">
                                         MYR {{ fmt(row.total_spent - row.annual_limit) }} over limit — only MYR {{ fmt(row.claimable) }} claimable
@@ -253,9 +292,7 @@ const taxSaved = computed(() => {
                                     MYR {{ fmt(row.claimable) }}
                                     <span class="text-xs font-normal text-gray-400 ml-1">claimable</span>
                                 </p>
-                                <p v-if="row.over_limit" class="text-xs text-red-500 line-through">
-                                    MYR {{ fmt(row.total_spent) }}
-                                </p>
+                                <p v-if="row.over_limit" class="text-xs text-red-500 line-through">MYR {{ fmt(row.total_spent) }}</p>
                                 <p class="text-xs text-gray-400">{{ row.entries_count }} expense{{ row.entries_count !== 1 ? 's' : '' }}</p>
                                 <svg class="h-4 w-4 text-gray-400 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
@@ -263,22 +300,65 @@ const taxSaved = computed(() => {
                             </div>
                         </div>
                     </Link>
+
+                    <!-- Guidance panel (expandable) -->
+                    <div
+                        v-if="expandedGuidance === row.deduction_type && taxGuidance[row.deduction_type]"
+                        class="border-t border-indigo-100 bg-indigo-50 px-6 py-4 dark:border-indigo-800/40 dark:bg-indigo-900/10"
+                    >
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="flex-1">
+                                <p class="text-xs font-semibold text-indigo-800 dark:text-indigo-300 mb-1">
+                                    LHDN Limit: {{ taxGuidance[row.deduction_type].limit }}
+                                </p>
+                                <p class="text-xs text-indigo-700 dark:text-indigo-400 mb-3">
+                                    {{ taxGuidance[row.deduction_type].notes }}
+                                </p>
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div v-if="taxGuidance[row.deduction_type].qualifies.length > 0">
+                                        <p class="text-xs font-medium text-indigo-800 dark:text-indigo-300 mb-1">✓ What qualifies:</p>
+                                        <ul class="space-y-0.5">
+                                            <li
+                                                v-for="item in taxGuidance[row.deduction_type].qualifies"
+                                                :key="item"
+                                                class="text-xs text-indigo-700 dark:text-indigo-400"
+                                            >• {{ item }}</li>
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-medium text-indigo-800 dark:text-indigo-300 mb-1">📎 Receipts needed:</p>
+                                        <p class="text-xs text-indigo-700 dark:text-indigo-400">{{ taxGuidance[row.deduction_type].receipts }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                class="text-indigo-400 hover:text-indigo-600 flex-shrink-0"
+                                @click="expandedGuidance = null"
+                            >
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
+                <!-- Grand total -->
                 <div class="flex items-center justify-between bg-gray-50 px-6 py-4 dark:bg-gray-700/30">
                     <p class="text-sm font-semibold text-gray-900 dark:text-white">Total Claimable Deductions</p>
                     <p class="text-lg font-bold text-indigo-600 dark:text-indigo-400">MYR {{ fmt(totalClaimable) }}</p>
                 </div>
             </div>
 
+            <!-- Empty state -->
             <div v-else class="px-6 py-20 text-center">
                 <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 <p class="mt-4 text-base font-medium text-gray-900 dark:text-white">No deductible expenses for {{ year }}</p>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Add expenses under tax-deductible categories to see your summary here.</p>
-                <Link href="/expenses/create"
-                    class="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
+                <Link href="/expenses/create" class="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
                     Add Expense
                 </Link>
             </div>
