@@ -1,21 +1,21 @@
 <?php
-
+ 
 namespace App\Http\Controllers;
-
+ 
 use App\Models\Category;
 use App\Models\Expense;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Inertia\Response;
-
+ 
 class TaxSummaryController extends Controller
 {
     public function index(Request $request): Response
     {
         $year   = (int) $request->query('year', now()->year);
         $userId = Auth::id();
-
+ 
         // ── Available years ───────────────────────────────────────────────
         $availableYears = Expense::where('user_id', $userId)
             ->selectRaw('YEAR(expense_date) as year')
@@ -23,11 +23,11 @@ class TaxSummaryController extends Controller
             ->orderByDesc('year')
             ->pluck('year')
             ->map(fn ($y) => (int) $y);
-
+ 
         if (!$availableYears->contains(now()->year)) {
             $availableYears->prepend(now()->year);
         }
-
+ 
         // ── Deductible expenses for the year ──────────────────────────────
         $expenses = Expense::with('category')
             ->where('user_id', $userId)
@@ -35,7 +35,7 @@ class TaxSummaryController extends Controller
             ->whereYear('expense_date', $year)
             ->whereHas('category', fn ($q) => $q->where('is_tax_deductible', true))
             ->get();
-
+ 
         // ── Group by deduction type ───────────────────────────────────────
         $grouped = $expenses
             ->groupBy(fn ($e) => $e->category->deduction_type)
@@ -50,7 +50,7 @@ class TaxSummaryController extends Controller
                 $usagePct    = $annualLimit
                     ? min(100, round(($totalSpent / $annualLimit) * 100))
                     : null;
-
+ 
                 $categories = $items
                     ->groupBy('category_id')
                     ->map(fn ($catItems) => [
@@ -60,7 +60,7 @@ class TaxSummaryController extends Controller
                         'total' => (float) $catItems->sum('amount'),
                     ])
                     ->values();
-
+ 
                 return [
                     'deduction_type'  => $deductionType,
                     'deduction_label' => Category::deductionTypes()[$deductionType] ?? $deductionType,
@@ -75,26 +75,26 @@ class TaxSummaryController extends Controller
             })
             ->sortByDesc('claimable')
             ->values();
-
+ 
         // ── Non-deductible total ──────────────────────────────────────────
         $nonDeductibleTotal = Expense::where('user_id', $userId)
             ->where('type', 'expense')
             ->whereYear('expense_date', $year)
             ->whereHas('category', fn ($q) => $q->where('is_tax_deductible', false))
             ->sum('amount');
-
+ 
         // ── Receipts count ────────────────────────────────────────────────
         $receiptsCount = Expense::where('user_id', $userId)
             ->whereYear('expense_date', $year)
             ->withCount('receipts')
             ->get()
             ->sum('receipts_count');
-
+ 
         // ── Totals ────────────────────────────────────────────────────────
         $totalClaimable = $grouped->sum('claimable');
         $totalSpent     = $grouped->sum('total_spent');
         $categoriesOver = $grouped->where('over_limit', true)->count();
-
+ 
         // ── Deduction limit alerts (≥80% used, for current year) ──────────
         $limitAlerts = $grouped
             ->filter(fn ($row) => $row['usage_pct'] !== null && $row['usage_pct'] >= 80)
@@ -110,7 +110,7 @@ class TaxSummaryController extends Controller
             ])
             ->sortByDesc('usage_pct')
             ->values();
-
+ 
         // ── Malaysian income tax brackets (YA2025) ────────────────────────
         $taxBrackets = [
             ['min' => 0,       'max' => 5000,    'rate' => 0,    'label' => 'Up to RM5,000'],
@@ -158,7 +158,7 @@ class TaxSummaryController extends Controller
             'NOT_DEDUCTIBLE'       => ['title' => 'Not Tax Deductible', 'limit' => 'N/A', 'notes' => 'These expenses do not qualify for LHDN tax deductions.', 'qualifies' => [], 'receipts' => 'N/A'],
         ];
 
-        return Inertia::render('TaxSummary/Index', [
+return Inertia::render('TaxSummary/Index', [
             'year'              => $year,
             'availableYears'    => $availableYears->values(),
             'breakdown'         => $grouped,
@@ -172,15 +172,99 @@ class TaxSummaryController extends Controller
             'taxGuidance'       => $taxGuidance,
         ]);
     }
+ 
+    public function compare(Request $request): Response
+    {
+        $userId = Auth::id();
+ 
+        $availableYears = Expense::where('user_id', $userId)
+            ->selectRaw('YEAR(expense_date) as year')
+            ->groupBy('year')
+            ->orderByDesc('year')
+            ->pluck('year')
+            ->map(fn ($y) => (int) $y);
+ 
+        if (!$availableYears->contains(now()->year)) {
+            $availableYears->prepend(now()->year);
+        }
+ 
+        // Compare up to 3 most recent years
+        $yearsToCompare = $availableYears->take(3)->values();
+ 
+        $deductionTypes = Category::deductionTypes();
+ 
+        // Build data per year
+        $byYear = $yearsToCompare->map(function ($year) use ($userId, $deductionTypes) {
+            $expenses = Expense::with('category')
+                ->where('user_id', $userId)
+                ->where('type', 'expense')
+                ->whereYear('expense_date', $year)
+                ->whereHas('category', fn ($q) => $q->where('is_tax_deductible', true))
+                ->get();
+ 
+            $breakdown = $expenses
+                ->groupBy(fn ($e) => $e->category->deduction_type)
+                ->map(function ($items) {
+                    $category   = $items->first()->category;
+                    $spent      = (float) $items->sum('amount');
+                    $limit      = $category->annual_limit ? (float) $category->annual_limit : null;
+                    $claimable  = $limit !== null ? min($spent, $limit) : $spent;
+                    return [
+                        'total_spent' => $spent,
+                        'claimable'   => $claimable,
+                        'annual_limit'=> $limit,
+                    ];
+                });
+ 
+            return [
+                'year'           => $year,
+                'breakdown'      => $breakdown,
+                'totalClaimable' => round($breakdown->sum('claimable'), 2),
+                'totalSpent'     => round($breakdown->sum('total_spent'), 2),
+            ];
+        });
+ 
+        // Collect all deduction types present across all years
+        $allTypes = $byYear
+            ->flatMap(fn ($y) => $y['breakdown']->keys())
+            ->unique()
+            ->filter(fn ($t) => isset($deductionTypes[$t]))
+            ->values();
+ 
+        // Build comparison rows
+        $rows = $allTypes->map(function ($type) use ($byYear, $deductionTypes) {
+            $row = [
+                'deduction_type'  => $type,
+                'deduction_label' => $deductionTypes[$type] ?? $type,
+                'years'           => [],
+            ];
+            foreach ($byYear as $yearData) {
+                $entry = $yearData['breakdown'][$type] ?? null;
+                $row['years'][$yearData['year']] = $entry ? [
+                    'claimable'    => $entry['claimable'],
+                    'total_spent'  => $entry['total_spent'],
+                    'annual_limit' => $entry['annual_limit'],
+                ] : null;
+            }
+            return $row;
+        });
+ 
+        return Inertia::render('TaxSummary/Compare', [
+            'years'          => $yearsToCompare,
+            'rows'           => $rows->values(),
+            'byYear'         => $byYear->keyBy('year'),
+            'availableYears' => $availableYears->values(),
+        ]);
+    }
 
-    public function show(Request $request, string $deductionType): Response
+    public function show(Request $request, $deductionType): Response
     {
         $year   = (int) $request->query('year', now()->year);
         $userId = Auth::id();
-
+ 
         $deductionTypes = Category::deductionTypes();
         abort_unless(array_key_exists($deductionType, $deductionTypes), 404);
-
+ 
         $expenses = Expense::with('category', 'receipts')
             ->where('user_id', $userId)
             ->where('type', 'expense')
@@ -204,14 +288,14 @@ class TaxSummaryController extends Controller
                     'color' => $e->category->color,
                 ],
             ]);
-
+ 
         $totalSpent  = $expenses->sum('amount');
         $category    = Category::where('deduction_type', $deductionType)
             ->where('is_tax_deductible', true)
             ->first();
         $annualLimit = $category?->annual_limit ? (float) $category->annual_limit : null;
         $claimable   = $annualLimit !== null ? min($totalSpent, $annualLimit) : $totalSpent;
-
+ 
         return Inertia::render('TaxSummary/Show', [
             'year'           => $year,
             'deductionType'  => $deductionType,
