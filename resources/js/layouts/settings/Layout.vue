@@ -23,6 +23,10 @@ const sidebarNavItems: NavItem[] = [
         title: 'Appearance',
         href: editAppearance(),
     },
+    {
+        title: 'Tax profile',
+        href: '/settings/tax-profile',
+    },
 ];
 
 const { isCurrentOrParentUrl } = useCurrentUrl();
