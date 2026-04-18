@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { FolderGit2, LayoutGrid, Receipt, Tag, FileText, TrendingUp, Wallet, Target } from 'lucide-vue-next';
+import { FolderGit2, LayoutGrid, Receipt, Tag, FileText, TrendingUp, Wallet, Target, ClipboardList, Share2 } from 'lucide-vue-next';
 import AppLogo from '@/components/AppLogo.vue';
 import NavFooter from '@/components/NavFooter.vue';
 import NavMain from '@/components/NavMain.vue';
@@ -52,6 +52,16 @@ const mainNavItems: NavItem[] = [
         title: 'Tax Summary',
         href: '/tax-summary',
         icon: FileText,
+    },
+    {
+        title: 'Audit Trail',
+        href: '/audit-trail',
+        icon: ClipboardList,
+    },
+    {
+        title: 'Tax Agent',
+        href: '/tax-agent',
+        icon: Share2,
     },
 ];
 
